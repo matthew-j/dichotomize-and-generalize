@@ -45,9 +45,10 @@ RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file
 @click.option('--gpu-device', type=int, default=0, help="GPU device id to run on.")
 @click.option('--random-seed', type=int, default=42, help="Random seed for reproducibility.")
 @click.option('--logging', type=bool, default=True, help="Logging flag.")
+@click.option('--num-models', type=int, default=1, help="Number of models for baggin.")
 def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample_size, weight_decay, prior,\
            learning_rate, lr_patience, optim_algo, epochs, batch_size, valid_size, pre_epochs, stop_early,\
-           gpu_device, random_seed, logging):
+           gpu_device, random_seed, logging, num_models):
 
     # Setting random seed for reproducibility
     random_state = check_random_state(random_seed)
@@ -72,7 +73,8 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
                                ('sample_size', sample_size), ('epochs', epochs), ('weight_decay', weight_decay),
                                ('prior', prior), ('learning_rate', learning_rate), ('lr_patience', lr_patience),
                                ('optim_algo', optim_algo), ('batch_size', batch_size), ('valid_size', valid_size),
-                               ('pre_epochs', pre_epochs), ('stop_early', stop_early), ('random_seed', random_seed)])
+                               ('pre_epochs', pre_epochs), ('stop_early', stop_early), ('random_seed', random_seed), 
+                               ('num_models', num_models)])
 
     directory_name = get_logging_dir_name(experiment_setting)
 
