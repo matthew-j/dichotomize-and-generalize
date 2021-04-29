@@ -11,7 +11,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from sklearn.utils import check_random_state, resample
+from sklearn.utils import check_random_state
 from sklearn.model_selection import train_test_split
 
 from poutyne.framework import Model, Experiment
@@ -45,10 +45,9 @@ RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file
 @click.option('--gpu-device', type=int, default=0, help="GPU device id to run on.")
 @click.option('--random-seed', type=int, default=42, help="Random seed for reproducibility.")
 @click.option('--logging', type=bool, default=True, help="Logging flag.")
-@click.option('--num-models', type=int, default=1, help="Number of models for baggin.")
 def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample_size, weight_decay, prior,\
            learning_rate, lr_patience, optim_algo, epochs, batch_size, valid_size, pre_epochs, stop_early,\
-           gpu_device, random_seed, logging, num_models):
+           gpu_device, random_seed, logging):
 
     # Setting random seed for reproducibility
     random_state = check_random_state(random_seed)
@@ -67,195 +66,181 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
     else:
         print("Running on CPU")
 
+    # Logging
     experiment_setting = dict([('experiment_name', experiment_name), ('dataset', dataset), ('network', network),
                                ('hidden_size', hidden_size), ('hidden_layers', hidden_layers),
                                ('sample_size', sample_size), ('epochs', epochs), ('weight_decay', weight_decay),
                                ('prior', prior), ('learning_rate', learning_rate), ('lr_patience', lr_patience),
                                ('optim_algo', optim_algo), ('batch_size', batch_size), ('valid_size', valid_size),
-                               ('pre_epochs', pre_epochs), ('stop_early', stop_early), ('random_seed', random_seed), 
-                               ('num_models', num_models)])
+                               ('pre_epochs', pre_epochs), ('stop_early', stop_early), ('random_seed', random_seed)])
 
     directory_name = get_logging_dir_name(experiment_setting)
+
+    logging_path = join(RESULTS_PATH, experiment_name, dataset, directory_name)
+    if logging:
+        if not exists(logging_path): makedirs(logging_path)
+        with open(join(logging_path, "setting.json"), 'w') as out_file:
+            json.dump(experiment_setting, out_file, sort_keys=True, indent=4)
+
     # Loading dataset
     dataset_loader = DatasetLoader(random_state=random_state)
     X_train, X_test, y_train, y_test = dataset_loader.load(dataset)
-    
-    Train = np.append(X_train, y_train, 1)
-    Train_bootstrapped = []
-    for _ in range(num_models):
-        Train_bootstrapped.append(resample(Train, replace=True, random_state=random_state))
-    
-    # Experiment
-    nets = []
-
-    for i in range(num_models):
-        train_data = Train_bootstrapped[i]
-        
-        X_train = train_data[:, :-1]
-        y_train = train_data[:,-1].reshape(X_train.shape[0], 1)
-        
-        X_train, X_valid, y_train, y_valid = train_test_split(X_train,
+    X_train, X_valid, y_train, y_valid = train_test_split(X_train,
                                                           y_train,
                                                           test_size=valid_size,
                                                           random_state=random_state)
-        batch_metrics = [accuracy]
-        epoch_metrics = []
-        save_every_epoch = False
-        cost_function = linear_loss
-        monitor_metric = 'val_loss'
-        valid_set_use = 'val'
-        callbacks = []
 
-        # Logging
-        logging_path = join(RESULTS_PATH, experiment_name, dataset, directory_name, str(i))
-        if logging:
-            if not exists(logging_path): makedirs(logging_path)
-            with open(join(logging_path, "setting.json"), 'w') as out_file:
-                json.dump(experiment_setting, out_file, sort_keys=True, indent=4)
+    # Experiment
+    batch_metrics = [accuracy]
+    epoch_metrics = []
+    save_every_epoch = False
+    cost_function = linear_loss
+    monitor_metric = 'val_loss'
+    valid_set_use = 'val'
+    callbacks = []
 
-        print("Training Model: {}".format(i))
-        if network in ['pbgnet', 'pbcombinet']:
-            print("### Using Pac-Bayes Binary Gradient Network ###")
-            if prior in ['zero', 'init']:
-                valid_set_use = 'train'
-                X_train = np.vstack([X_train, X_valid])
-                y_train = np.vstack([y_train, y_valid])
-            elif prior == 'pretrain':
-                valid_set_use = 'pretrain'
-
-            if network == 'pbgnet':
-                net = PBGNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], sample_size, delta)
-            else:
-                net = PBCombiNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], delta)
-            monitor_metric = 'bound'
-            cost_function = net.bound
-            epoch_metrics.append(MasterMetricLogger(network=net,
-                                                    loss_function=linear_loss,
-                                                    delta=delta,
-                                                    n_examples=X_train.shape[0]))
-
-        elif network in ['pbgnet_ll', 'pbcombinet_ll']:
-            print("### Using PAC-Bayes Gradient Network Architecture and Optimizing Linear Loss ###")
-            if network == 'pbgnet_ll':
-                net = PBGNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], sample_size, delta)
-            else:
-                net = PBCombiNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], delta)
-            epoch_metrics.append(MasterMetricLogger(network=net,
-                                                    loss_function=linear_loss,
-                                                    delta=delta,
-                                                    n_examples=X_train.shape[0],
-                                                    C_range=C_range.to(device)))
-            callbacks.append(ModelCheckpoint(join(logging_path, 'bound_checkpoint_epoch.ckpt'),
-                                            temporary_filename=join(logging_path, 'bound_checkpoint_epoch.tmp.ckpt'),
-                                            monitor='bound',
-                                            mode='min',
-                                            save_best_only=True))
-        elif network == "baseline":
-            print("### Running the Baseline Network with Tanh activations ###")
-            net = BaselineNet(X_train.shape[1], hidden_layers * [hidden_size], torch.nn.Tanh)
-
-        if network.startswith('pb'):
-            epoch_metrics.append(MetricLogger(network=net, key='bound'))
-            epoch_metrics.append(MetricLogger(network=net, key='kl'))
-            epoch_metrics.append(MetricLogger(network=net, key='C'))
-
-        # Parameters initialization
+    if network in ['pbgnet', 'pbcombinet']:
+        print("### Using Pac-Bayes Binary Gradient Network ###")
         if prior in ['zero', 'init']:
-            net.init_weights()
-
+            valid_set_use = 'train'
+            X_train = np.vstack([X_train, X_valid])
+            y_train = np.vstack([y_train, y_valid])
         elif prior == 'pretrain':
-            print("### Pre-training network ###")
-            if network == 'pbgnet':
-                pre_net = PBGNet(X_valid.shape[1], hidden_layers * [hidden_size], X_valid.shape[0], sample_size, delta)
-            else:
-                pre_net = PBCombiNet(X_valid.shape[1], hidden_layers * [hidden_size], X_valid.shape[0], delta)
+            valid_set_use = 'pretrain'
 
-            pre_net.init_weights()
-            pre_optimizer = torch.optim.Adam(pre_net.parameters(), lr=learning_rate, weight_decay=0.0)
-            pre_logging_path = join(logging_path, 'pretrain')
-            if not exists(pre_logging_path): makedirs(pre_logging_path)
+        if network == 'pbgnet':
+            net = PBGNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], sample_size, delta)
+        else:
+            net = PBCombiNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], delta)
+        monitor_metric = 'bound'
+        cost_function = net.bound
+        epoch_metrics.append(MasterMetricLogger(network=net,
+                                                loss_function=linear_loss,
+                                                delta=delta,
+                                                n_examples=X_train.shape[0]))
 
-            pretrain = Experiment(directory=pre_logging_path,
-                                network=pre_net,
-                                optimizer=pre_optimizer,
-                                loss_function=linear_loss,
-                                monitor_metric='loss',
-                                device=device,
-                                logging=logging,
-                                batch_metrics=[accuracy])
+    elif network in ['pbgnet_ll', 'pbcombinet_ll']:
+        print("### Using PAC-Bayes Gradient Network Architecture and Optimizing Linear Loss ###")
+        if network == 'pbgnet_ll':
+            net = PBGNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], sample_size, delta)
+        else:
+            net = PBCombiNet(X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], delta)
+        epoch_metrics.append(MasterMetricLogger(network=net,
+                                                loss_function=linear_loss,
+                                                delta=delta,
+                                                n_examples=X_train.shape[0],
+                                                C_range=C_range.to(device)))
+        callbacks.append(ModelCheckpoint(join(logging_path, 'bound_checkpoint_epoch.ckpt'),
+                                         temporary_filename=join(logging_path, 'bound_checkpoint_epoch.tmp.ckpt'),
+                                         monitor='bound',
+                                         mode='min',
+                                         save_best_only=True))
+    elif network == "baseline":
+        print("### Running the Baseline Network with Tanh activations ###")
+        net = BaselineNet(X_train.shape[1], hidden_layers * [hidden_size], torch.nn.Tanh)
 
-            pretrain_loader = DataLoader(TensorDataset(torch.Tensor(X_valid), torch.Tensor(y_valid)),
-                                        batch_size,
-                                        shuffle=True)
+    if network.startswith('pb'):
+        epoch_metrics.append(MetricLogger(network=net, key='bound'))
+        epoch_metrics.append(MetricLogger(network=net, key='kl'))
+        epoch_metrics.append(MetricLogger(network=net, key='C'))
 
-            pretrain.train(train_generator=pretrain_loader,
-                        valid_generator=None,
-                        epochs=pre_epochs,
-                        save_every_epoch=False,
-                        disable_tensorboard=True,
-                        seed=random_seed)
+    # Parameters initialization
+    if prior in ['zero', 'init']:
+        net.init_weights()
 
-            history = pd.read_csv(pretrain.log_filename, sep='\t')
-            best_epoch_index = history['loss'].idxmin()
-            best_epoch_stats = history.iloc[best_epoch_index:best_epoch_index + 1]
-            best_epoch = best_epoch_stats['epoch'].item()
-            ckpt_filename = pretrain.best_checkpoint_filename.format(epoch=best_epoch)
-            weights = torch.load(ckpt_filename, map_location='cpu')
+    elif prior == 'pretrain':
+        print("### Pre-training network ###")
+        if network == 'pbgnet':
+            pre_net = PBGNet(X_valid.shape[1], hidden_layers * [hidden_size], X_valid.shape[0], sample_size, delta)
+        else:
+            pre_net = PBCombiNet(X_valid.shape[1], hidden_layers * [hidden_size], X_valid.shape[0], delta)
 
-            net.load_state_dict(weights, strict=False)
+        pre_net.init_weights()
+        pre_optimizer = torch.optim.Adam(pre_net.parameters(), lr=learning_rate, weight_decay=0.0)
+        pre_logging_path = join(logging_path, 'pretrain')
+        if not exists(pre_logging_path): makedirs(pre_logging_path)
 
-        print("### Training ###")
+        pretrain = Experiment(directory=pre_logging_path,
+                              network=pre_net,
+                              optimizer=pre_optimizer,
+                              loss_function=linear_loss,
+                              monitor_metric='loss',
+                              device=device,
+                              logging=logging,
+                              batch_metrics=[accuracy])
 
-        # Setting prior
-        if network.startswith('pb') and prior in ['init', 'pretrain']:
-            net.set_priors(net.state_dict())
+        pretrain_loader = DataLoader(TensorDataset(torch.Tensor(X_valid), torch.Tensor(y_valid)),
+                                     batch_size,
+                                     shuffle=True)
 
-        # Adding early stopping and lr scheduler
-        reduce_lr = ReduceLROnPlateau(monitor=monitor_metric, mode='min', patience=lr_patience, factor=0.5, \
-                                    threshold_mode='abs', threshold=1e-4, verbose=True)
-        lr_schedulers = [reduce_lr]
+        pretrain.train(train_generator=pretrain_loader,
+                       valid_generator=None,
+                       epochs=pre_epochs,
+                       save_every_epoch=False,
+                       disable_tensorboard=True,
+                       seed=random_seed)
 
-        early_stopping = EarlyStopping(monitor=monitor_metric,
-                                    mode='min',
-                                    min_delta=1e-4,
-                                    patience=stop_early,
-                                    verbose=True)
-        if stop_early > 0:
-            callbacks.append(early_stopping)
+        history = pd.read_csv(pretrain.log_filename, sep='\t')
+        best_epoch_index = history['loss'].idxmin()
+        best_epoch_stats = history.iloc[best_epoch_index:best_epoch_index + 1]
+        best_epoch = best_epoch_stats['epoch'].item()
+        ckpt_filename = pretrain.best_checkpoint_filename.format(epoch=best_epoch)
+        weights = torch.load(ckpt_filename, map_location='cpu')
 
-        # Initializing optimizer
-        if optim_algo == "sgd":
-            optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
-        elif optim_algo == "adam":
-            optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        # Creating Poutyne experiment
-        expt = Experiment(directory=logging_path,
-                        network=net,
-                        optimizer=optimizer,
-                        loss_function=cost_function,
-                        monitor_metric=monitor_metric,
-                        device=device,
-                        logging=logging,
-                        batch_metrics=batch_metrics,
-                        epoch_metrics=epoch_metrics)
+        net.load_state_dict(weights, strict=False)
 
-        # Initializing data loaders
-        train_loader = DataLoader(TensorDataset(torch.Tensor(X_train), torch.Tensor(y_train)), batch_size, shuffle=True)
-        valid_loader = None
-        if valid_set_use == 'val':
-            valid_loader = DataLoader(TensorDataset(torch.Tensor(X_valid), torch.Tensor(y_valid)), batch_size)
+    print("### Training ###")
 
-        # Launching training
-        expt.train(train_generator=train_loader,
-                valid_generator=valid_loader,
-                epochs=epochs,
-                callbacks=callbacks,
-                lr_schedulers=lr_schedulers,
-                save_every_epoch=save_every_epoch,
-                disable_tensorboard=True,
-                seed=random_seed)
-        nets.append(net)
-    
+    # Setting prior
+    if network.startswith('pb') and prior in ['init', 'pretrain']:
+        net.set_priors(net.state_dict())
+
+    # Adding early stopping and lr scheduler
+    reduce_lr = ReduceLROnPlateau(monitor=monitor_metric, mode='min', patience=lr_patience, factor=0.5, \
+                                  threshold_mode='abs', threshold=1e-4, verbose=True)
+    lr_schedulers = [reduce_lr]
+
+    early_stopping = EarlyStopping(monitor=monitor_metric,
+                                   mode='min',
+                                   min_delta=1e-4,
+                                   patience=stop_early,
+                                   verbose=True)
+    if stop_early > 0:
+        callbacks.append(early_stopping)
+
+    # Initializing optimizer
+    if optim_algo == "sgd":
+        optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
+    elif optim_algo == "adam":
+        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+    # Creating Poutyne experiment
+    expt = Experiment(directory=logging_path,
+                      network=net,
+                      optimizer=optimizer,
+                      loss_function=cost_function,
+                      monitor_metric=monitor_metric,
+                      device=device,
+                      logging=logging,
+                      batch_metrics=batch_metrics,
+                      epoch_metrics=epoch_metrics)
+
+    # Initializing data loaders
+    train_loader = DataLoader(TensorDataset(torch.Tensor(X_train), torch.Tensor(y_train)), batch_size, shuffle=True)
+    valid_loader = None
+    if valid_set_use == 'val':
+        valid_loader = DataLoader(TensorDataset(torch.Tensor(X_valid), torch.Tensor(y_valid)), batch_size)
+
+    # Launching training
+    expt.train(train_generator=train_loader,
+               valid_generator=valid_loader,
+               epochs=epochs,
+               callbacks=callbacks,
+               lr_schedulers=lr_schedulers,
+               save_every_epoch=save_every_epoch,
+               disable_tensorboard=True,
+               seed=random_seed)
+
     print("### Testing ###")
     sign_act_fct = lambda: Lambda(lambda x: torch.sign(x))
     test_loader = DataLoader(TensorDataset(torch.Tensor(X_test), torch.Tensor(y_test)), batch_size)
