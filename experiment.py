@@ -11,7 +11,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from sklearn.utils import check_random_state
+from sklearn.utils import check_random_state, resample
 from sklearn.model_selection import train_test_split
 
 from poutyne.framework import Model, Experiment
@@ -79,15 +79,25 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
     # Loading dataset
     dataset_loader = DatasetLoader(random_state=random_state)
     X_train, X_test, y_train, y_test = dataset_loader.load(dataset)
-    X_train, X_valid, y_train, y_valid = train_test_split(X_train,
-                                                          y_train,
-                                                          test_size=valid_size,
-                                                          random_state=random_state)
-
+    
+    Train = np.append(X_train, y_train, 1)
+    Train_bootstrapped = []
+    for _ in range(num_models):
+        Train_bootstrapped.append(resample(Train, replace=True, random_state=random_state))
+    
     # Experiment
     nets = []
 
     for i in range(num_models):
+        train_data = Train_bootstrapped[i]
+        
+        X_train = train_data[:, :-1]
+        y_train = train_data[:,-1].reshape(X_train.shape[0], 1)
+        
+        X_train, X_valid, y_train, y_valid = train_test_split(X_train,
+                                                          y_train,
+                                                          test_size=valid_size,
+                                                          random_state=random_state)
         batch_metrics = [accuracy]
         epoch_metrics = []
         save_every_epoch = False
