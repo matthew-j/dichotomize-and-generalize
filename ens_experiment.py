@@ -19,7 +19,7 @@ from poutyne.framework.callbacks import ReduceLROnPlateau, EarlyStopping, ModelC
 from poutyne.layers import Lambda
 
 from pbgdeep.dataset_loader import DatasetLoader
-from pbgdeep.networks import PBGNet, BaselineNet, PBCombiNet
+from pbgdeep.networks import PBGNet_Ensemble, PBGNet, BaselineNet, PBCombiNet
 from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger
 
 RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file__)), "results"))
@@ -91,6 +91,14 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
 
     ## Experiment
     for i in range(num_models):
+        batch_metrics = [accuracy]
+        epoch_metrics = []
+        save_every_epoch = False
+        cost_function = linear_loss
+        monitor_metric = 'val_loss'
+        valid_set_use = 'val'
+        callbacks = []
+
         train_data = Train_bootstrapped[i]
         
         X_train = train_data[:, :-1]
@@ -100,13 +108,6 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
                                                           y_train,
                                                           test_size=valid_size,
                                                           random_state=random_state)
-        batch_metrics = [accuracy]
-        epoch_metrics = []
-        save_every_epoch = False
-        cost_function = linear_loss
-        monitor_metric = 'val_loss'
-        valid_set_use = 'val'
-        callbacks = []
 
         # Logging
         logging_path = join(RESULTS_PATH, experiment_name, dataset, directory_name, str(i))
@@ -198,8 +199,8 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
                 disable_tensorboard=True,
                 seed=random_seed)
 
-        nets.append(net)
         experiments.append(expt)
+        nets.append(net)
     
     print("### Testing ###")
     sign_act_fct = lambda: Lambda(lambda x: torch.sign(x))
@@ -207,38 +208,29 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
     ##
     def pbgnet_testing(target_metric, irrelevant_columns, n_repetitions=20):
         print(f"Restoring best model according to {target_metric}")
+        for expt in experiments:
+            # Cleaning logs
+            history = pd.read_csv(expt.log_filename, sep='\t').drop(irrelevant_columns, axis=1, errors='ignore')
+            history.to_csv(expt.log_filename, sep='\t', index=False)
 
-        # Cleaning logs
-        history = pd.read_csv(expt.log_filename, sep='\t').drop(irrelevant_columns, axis=1, errors='ignore')
-        history.to_csv(expt.log_filename, sep='\t', index=False)
+            # Loading best weights
+            best_epoch_index = history[target_metric].idxmin()
+            best_epoch_stats = history.iloc[best_epoch_index:best_epoch_index + 1].reset_index(drop=True)
+            best_epoch = best_epoch_stats['epoch'].item()
+            print(f"Found best checkpoint at epoch: {best_epoch}")
+            ckpt_filename = expt.best_checkpoint_filename.format(epoch=best_epoch)
+            weights = torch.load(ckpt_filename, map_location='cpu')
+            updated_weights = {}
+            for name, weight in weights.items():
+                if name.startswith('layers'):
+                    name = name.split('.', 2)
+                    name[1] = str(2 * int(name[1]))
+                    name = '.'.join(name)
+                    updated_weights[name] = weight
+            nets[i].load_state_dict(weights)
 
-        # Loading best weights
-        best_epoch_index = history[target_metric].idxmin()
-        best_epoch_stats = history.iloc[best_epoch_index:best_epoch_index + 1].reset_index(drop=True)
-        best_epoch = best_epoch_stats['epoch'].item()
-        print(f"Found best checkpoint at epoch: {best_epoch}")
-        ckpt_filename = expt.best_checkpoint_filename.format(epoch=best_epoch)
-        weights = torch.load(ckpt_filename, map_location='cpu')
-
-        # Binary network testing (sign activation)
-        binary_net = BaselineNet(X_test.shape[1], hidden_layers * [hidden_size], sign_act_fct)
-        updated_weights = {}
-        for name, weight in weights.items():
-            if name.startswith('layers'):
-                name = name.split('.', 2)
-                name[1] = str(2 * int(name[1]))
-                name = '.'.join(name)
-                updated_weights[name] = weight
-
-        binary_net.load_state_dict(updated_weights, strict=False)
-        binary_model = Model(binary_net, 'sgd', linear_loss, batch_metrics=[accuracy])
-        test_loss, test_accuracy = binary_model.evaluate_generator(test_loader, steps=None)
-
-        best_epoch_stats['bin_test_linear_loss'] = test_loss
-        best_epoch_stats['bin_test_accuracy'] = test_accuracy
-
-        model = expt.model
-        model.load_weights(ckpt_filename)
+        ensemble_network = PBGNet_Ensemble(nets)
+        model = Model(ensemble_network, 'sgd', linear_loss, batch_metrics=batch_metrics, epoch_metrics=epoch_metrics)
 
         def repeat_inference(loader, prefix='', drop_keys=[], n_times=20):
             metrics_names = [prefix + 'loss'] + [prefix + metric_name for metric_name in model.metrics_names]

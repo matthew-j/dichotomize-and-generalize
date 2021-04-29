@@ -225,6 +225,42 @@ class PBGNet(torch.nn.Module):
         for layer in self.layers:
             layer.sample_size = sample_size
 
+class PBGNet_Ensemble(torch.nn.Module):
+    """PAC-Bayesian Binary Gradient Network architecture (stochastic approximation) PyTorch module.
+
+    Args:
+        input_size (int): Input data point dimension d_0.
+        hidden_layers (list): List of number of neurons per layers from first layer d_1 to before last layer d_{L-1}.
+        n_examples (int): Number of examples in the training set, used for bound computation.
+        sample_size (int): Sample size T for Monte Carlo approximation (Default value = 100).
+        delta (float): Delta parameter of PAC-Bayesian bounds, see Theorem 1 (Default value = 0.05).
+    """
+
+    def __init__(self, pbgnets):
+        super(PBGNet_Ensemble, self).__init__()
+        self.nets = pbgnets
+        self.n_nets = len(pbgnets)
+        self.conv1 = nn.Conv2d(2,2,4)
+
+    def forward(self, input):
+        outputs = []
+        for net in self.nets:
+            outputs.append(net.forward(input))
+            
+        votecount = sum(outputs)
+        retval = torch.sign(votecount)
+
+        return retval
+
+    def bound(self, pred_y, y):
+        """Bound computation as presented in Theorem 3. with the learned C value."""
+        
+        return 24
+
+    def compute_kl(self):
+        return self.nets[0].compute_kl()
+
+
 class BaselineNet(torch.nn.Module):
     """Standard neural network architecture used as a baseline.
 
