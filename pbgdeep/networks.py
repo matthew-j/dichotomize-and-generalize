@@ -240,7 +240,7 @@ class PBGNet_Ensemble(torch.nn.Module):
         super(PBGNet_Ensemble, self).__init__()
         self.nets = pbgnets
         self.n_nets = len(pbgnets)
-        self.conv1 = nn.Conv2d(2,2,4)
+        self.conv1 = nn.Conv2d(2,2,4) ## dummy layer
 
     def forward(self, input):
         outputs = []
@@ -251,15 +251,6 @@ class PBGNet_Ensemble(torch.nn.Module):
         retval = torch.sign(votecount)
 
         return retval
-
-    def bound(self, pred_y, y):
-        """Bound computation as presented in Theorem 3. with the learned C value."""
-        
-        return 24
-
-    def compute_kl(self):
-        return self.nets[0].compute_kl()
-
 
 class BaselineNet(torch.nn.Module):
     """Standard neural network architecture used as a baseline.

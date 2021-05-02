@@ -230,7 +230,7 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
             nets[i].load_state_dict(weights)
 
         ensemble_network = PBGNet_Ensemble(nets)
-        model = Model(ensemble_network, 'sgd', linear_loss, batch_metrics=batch_metrics, epoch_metrics=epoch_metrics)
+        model = Model(ensemble_network, optimizer, cost_function, batch_metrics=batch_metrics, epoch_metrics=epoch_metrics)
 
         def repeat_inference(loader, prefix='', drop_keys=[], n_times=20):
             metrics_names = [prefix + 'loss'] + [prefix + metric_name for metric_name in model.metrics_names]
