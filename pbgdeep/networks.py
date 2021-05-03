@@ -251,6 +251,8 @@ class PBGNet_Ensemble(torch.nn.Module):
         retval = torch.sign(votecount)
 
         return retval
+    def get_disagreement(self):
+        return 0
 
 class BaselineNet(torch.nn.Module):
     """Standard neural network architecture used as a baseline.

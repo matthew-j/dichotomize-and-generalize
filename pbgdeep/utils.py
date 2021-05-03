@@ -87,3 +87,51 @@ class MetricLogger(EpochMetric):
 
     def get_metric(self):
         return self.network.metrics[self.key]
+
+class EnsembleBoundTheorem10(EpochMetric):
+    """Computes bound from theorem 10"""
+
+    def __init__(self, network, loss_function, delta, n_examples, C_range=None):
+        super().__init__()
+        self.network = network
+        self.loss_function = loss_function
+        self.delta = delta
+        self.n_examples = n_examples
+        self.C_range = C_range
+        self.__name__ = "Bound in Theorem 10"
+        self.reset()
+
+    def forward(self, y_prediction, y_true):
+        self.loss_sum += self.loss_function(y_prediction, y_true) * y_true.shape[0]
+        self.example_sum += y_true.shape[0]
+
+    def reset(self):
+        self.loss_sum = 0
+        self.example_sum = 0
+
+    def get_metric(self):
+        return 24
+
+class EnsembleBoundOracle(EpochMetric):
+    """Computes Oracle Bound"""
+
+    def __init__(self, network, loss_function, delta, n_examples, C_range=None):
+        super().__init__()
+        self.network = network
+        self.loss_function = loss_function
+        self.delta = delta
+        self.n_examples = n_examples
+        self.C_range = C_range
+        self.__name__ = "Oracle Bound"
+        self.reset()
+
+    def forward(self, y_prediction, y_true):
+        self.loss_sum += self.loss_function(y_prediction, y_true) * y_true.shape[0]
+        self.example_sum += y_true.shape[0]
+
+    def reset(self):
+        self.loss_sum = 0
+        self.example_sum = 0
+
+    def get_metric(self):
+        return 24

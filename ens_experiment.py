@@ -20,7 +20,7 @@ from poutyne.layers import Lambda
 
 from pbgdeep.dataset_loader import DatasetLoader
 from pbgdeep.networks import PBGNet_Ensemble, PBGNet, BaselineNet, PBCombiNet
-from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger
+from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger, EnsembleBoundTheorem10, EnsembleBoundOracle
 
 RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file__)), "results"))
 
@@ -230,7 +230,12 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
             nets[i].load_state_dict(weights)
 
         ensemble_network = PBGNet_Ensemble(nets)
-        model = Model(ensemble_network, optimizer, cost_function, batch_metrics=batch_metrics, epoch_metrics=epoch_metrics)
+        bound1 = EnsembleBoundTheorem10(network=ensemble_network, loss_function=linear_loss,
+                                                    delta=delta, n_examples=X_train.shape[0])
+        bound2 = EnsembleBoundOracle(network=ensemble_network, loss_function=linear_loss,
+                                                    delta=delta, n_examples=X_train.shape[0])
+        ens_bounds = [bound1, bound2]
+        model = Model(ensemble_network, optimizer, cost_function, batch_metrics=batch_metrics, epoch_metrics=ens_bounds)
 
         def repeat_inference(loader, prefix='', drop_keys=[], n_times=20):
             metrics_names = [prefix + 'loss'] + [prefix + metric_name for metric_name in model.metrics_names]
@@ -256,8 +261,6 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
         metrics_stats = metrics_stats.join(pd.concat([best_epoch_stats]*n_repetitions, ignore_index=True))
 
         log_filename = expt.test_log_filename.format(name='test')
-        if network in ['pbgnet_ll', 'pbcombinet_ll'] and target_metric == 'bound':
-            log_filename = join(logging_path, 'bound_test_log.tsv')
         metrics_stats.to_csv(log_filename, sep='\t', index=False)
     ##
     default_irrelevant_columns = ['val_bound', 'val_kl', 'val_C']
