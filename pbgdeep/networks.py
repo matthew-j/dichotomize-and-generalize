@@ -269,18 +269,21 @@ class PBGNet_Ensemble(torch.nn.Module):
                 layer.weight /= len(self.nets)
 
     def get_disagreement(self):
-        return np.average(self.disagreements) / self.sample_count
+        disagreement = np.average(self.disagreements) / self.sample_count
+        if disagreement == 0:
+            return 0.001
+        else:
+            return disagreement
 
     def update_disagreement(self, outputs):
         cur_disagreements = []
         for i in range(len(outputs)):
             for j in range(i+1, len(outputs)):
-                for output in outputs:
-                    if torch.sign(output[j]) != torch.sign(output[i]):
-                        cur_disagreements.append(1)
-                    else:
-                        cur_disagreements.append(0)
-
+                disagreements = 0
+                for k in range(len(outputs[0])):
+                    if torch.sign(outputs[j][k]) != torch.sign(outputs[i][k]):
+                        disagreements += 1
+                cur_disagreements.append(disagreements)
         if self.sample_count == 0:
             self.disagreements = cur_disagreements
         else:
