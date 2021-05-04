@@ -98,7 +98,7 @@ class MarkovEnsembleBound(EpochMetric):
         self.delta = delta
         self.n_examples = n_examples
         self.C_range = C_range
-        self.__name__ = "Markov Ensemble Bound"
+        self.__name__ = "Markov_Bound"
         self.reset()
 
     def forward(self, y_prediction, y_true):
@@ -128,7 +128,7 @@ class C3EnsembleBound(EpochMetric):
         self.delta = delta
         self.n_examples = n_examples
         self.C_range = C_range
-        self.__name__ = "Oracle Bound"
+        self.__name__ = "c3_bound"
         self.reset()
 
     def forward(self, y_prediction, y_true):
