@@ -88,7 +88,7 @@ class MetricLogger(EpochMetric):
     def get_metric(self):
         return self.network.metrics[self.key]
 
-class EnsembleBoundTheorem10(EpochMetric):
+class MarkovEnsembleBound(EpochMetric):
     """Computes bound from theorem 10"""
 
     def __init__(self, network, loss_function, delta, n_examples, C_range=None):
@@ -112,7 +112,7 @@ class EnsembleBoundTheorem10(EpochMetric):
     def get_metric(self):
         return 24
 
-class EnsembleBoundOracle(EpochMetric):
+class C3EnsembleBound(EpochMetric):
     """Computes Oracle Bound"""
 
     def __init__(self, network, loss_function, delta, n_examples, C_range=None):

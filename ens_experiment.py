@@ -20,7 +20,7 @@ from poutyne.layers import Lambda
 
 from pbgdeep.dataset_loader import DatasetLoader
 from pbgdeep.networks import PBGNet_Ensemble, PBGNet, BaselineNet, PBCombiNet
-from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger, EnsembleBoundTheorem10, EnsembleBoundOracle
+from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger, C3EnsembleBound, MarkovEnsembleBound
 
 RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file__)), "results"))
 
@@ -46,9 +46,10 @@ RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file
 @click.option('--random-seed', type=int, default=42, help="Random seed for reproducibility.")
 @click.option('--logging', type=bool, default=True, help="Logging flag.")
 @click.option('--num-models', type=int, default=1, help="Number of models for baggin.")
+@click.option('--loss-bound', type=click.Choice(["base", "markov", "c3"]), default="base", help="Bound to use when testing")
 def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample_size, weight_decay, prior,\
            learning_rate, lr_patience, optim_algo, epochs, batch_size, valid_size, pre_epochs, stop_early,\
-           gpu_device, random_seed, logging, num_models):
+           gpu_device, random_seed, logging, num_models, loss_bound):
 
     # Setting random seed for reproducibility
     random_state = check_random_state(random_seed)
@@ -230,12 +231,16 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
             nets[i].load_state_dict(weights)
 
         ensemble_network = PBGNet_Ensemble(nets)
-        bound1 = EnsembleBoundTheorem10(network=ensemble_network, loss_function=linear_loss,
-                                                    delta=delta, n_examples=X_train.shape[0])
-        bound2 = EnsembleBoundOracle(network=ensemble_network, loss_function=linear_loss,
-                                                    delta=delta, n_examples=X_train.shape[0])
-        ens_bounds = [bound1, bound2]
-        model = Model(ensemble_network, optimizer, cost_function, batch_metrics=batch_metrics, epoch_metrics=ens_bounds)
+
+        ens_bound = epoch_metrics
+        if loss_bound == 'markov':
+            ens_bound = [MarkovEnsembleBound(network=ensemble_network, loss_function=linear_loss,
+                                                    delta=delta, n_examples=X_train.shape[0])]
+        elif loss_bound == 'c3':
+            ens_bound = [C3EnsembleBound(network=ensemble_network, loss_function=linear_loss,
+                                                    delta=delta, n_examples=X_train.shape[0])]
+            
+        model = Model(ensemble_network, optimizer, cost_function, batch_metrics=batch_metrics, epoch_metrics=ens_bound)
 
         def repeat_inference(loader, prefix='', drop_keys=[], n_times=20):
             metrics_names = [prefix + 'loss'] + [prefix + metric_name for metric_name in model.metrics_names]
