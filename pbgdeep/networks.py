@@ -273,9 +273,6 @@ class PBGNet_Ensemble(torch.nn.Module):
         retval = torch.sign(votecount)
 
         return retval
-    
-    def markov_bound(self, pred_y, y):
-        return 2 * self.gibs_net.bound(pred_y, y)
 
 class BaselineNet(torch.nn.Module):
     """Standard neural network architecture used as a baseline.
