@@ -20,7 +20,7 @@ from poutyne.layers import Lambda
 
 from pbgdeep.dataset_loader import DatasetLoader
 from pbgdeep.networks import PBGNet_Ensemble, PBGNet, BaselineNet, PBCombiNet
-from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger, C3EnsembleBound, MarkovEnsembleBound
+from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger, C1EnsembleBound, MarkovEnsembleBound
 
 RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file__)), "results"))
 
@@ -46,9 +46,10 @@ RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file
 @click.option('--random-seed', type=int, default=42, help="Random seed for reproducibility.")
 @click.option('--logging', type=bool, default=True, help="Logging flag.")
 @click.option('--num-models', type=int, default=1, help="Number of models for baggin.")
+@click.option('--train-size', type=int, default=0, help="Size of bagged training set")
 def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample_size, weight_decay, prior,\
            learning_rate, lr_patience, optim_algo, epochs, batch_size, valid_size, pre_epochs, stop_early,\
-           gpu_device, random_seed, logging, num_models):
+           gpu_device, random_seed, logging, num_models, train_size):
 
     # Setting random seed for reproducibility
     random_state = check_random_state(random_seed)
@@ -83,8 +84,10 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
     Train = np.append(X_train, y_train, 1)
     Train_bootstrapped = []
     for _ in range(num_models):
-        Train_bootstrapped.append(resample(Train, replace=True, random_state=random_state))
-    
+        if train_size == 0:
+            Train_bootstrapped.append(resample(Train, replace=True, random_state=random_state))
+        else:
+            Train_bootstrapped.append(resample(Train, replace=True, n_samples=train_size, random_state=random_state))
     nets = []
     logging_paths = []
     experiments = []
@@ -235,7 +238,7 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
         ens_bound.append(MarkovEnsembleBound(network=ensemble_network, loss_function=linear_loss,
                                                     delta=delta, n_examples=X_train.shape[0]))
 
-        ens_bound.append(C3EnsembleBound(network=ensemble_network, loss_function=linear_loss,
+        ens_bound.append(C1EnsembleBound(network=ensemble_network, loss_function=linear_loss,
                                                     delta=delta, n_examples=X_train.shape[0]))
             
         model = Model(ensemble_network, optimizer, linear_loss, batch_metrics=batch_metrics, epoch_metrics=ens_bound)

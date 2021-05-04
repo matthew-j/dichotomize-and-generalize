@@ -1,6 +1,8 @@
 import itertools
 import math
 
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -243,6 +245,8 @@ class PBGNet_Ensemble(torch.nn.Module):
         self.conv1 = nn.Conv2d(2,2,4) ## dummy layer
         self.gibs_net = PBGNet(input_size, hidden_layers, n_examples, sample_size=64, delta=0.05)
         self.t = sum([self.nets[i].t for i in range(len(self.nets))]) / len(self.nets)
+        self.disagreements = []
+        self.sample_count = 0
 
         # init priors and weights
         self.gibs_net.set_priors(self.gibs_net.state_dict())
@@ -264,11 +268,30 @@ class PBGNet_Ensemble(torch.nn.Module):
                 layer.priors['bias'] /= len(self.nets)
                 layer.weight /= len(self.nets)
 
+    def get_disagreement(self):
+        return np.average(self.disagreements) / self.sample_count
+
+    def update_disagreement(self, outputs):
+        cur_disagreements = []
+        for output in outputs:
+            for i in range(len(output)):
+                for j in range(i+1, len(output)):
+                    if torch.sign(output[j]) != torch.sign(output[i]):
+                        cur_disagreements.append(1)
+                    else:
+                        cur_disagreements.append(0)
+
+            if self.sample_count == 0:
+                self.disagreements = cur_disagreements
+            else:
+                self.disagreements += cur_disagreements
+            self.sample_count += 1
+
     def forward(self, input):
         outputs = []
         for net in self.nets:
             outputs.append(net.forward(input))
-            
+        self.update_disagreement(outputs)
         votecount = sum(outputs)
         retval = torch.sign(votecount)
 

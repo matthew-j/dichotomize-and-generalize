@@ -1,6 +1,8 @@
 import math
 import torch
 
+import numpy as np
+
 from poutyne.framework.metrics.epoch_metrics import EpochMetric
 
 def linear_loss(pred_y, y):
@@ -118,8 +120,8 @@ class MarkovEnsembleBound(EpochMetric):
             bound_value = bound(loss, kl, self.delta, self.n_examples, C)
         return 2 * bound_value
 
-class C3EnsembleBound(EpochMetric):
-    """Computes Oracle Bound"""
+class C1EnsembleBound(EpochMetric):
+    """Computes c1 Bound"""
 
     def __init__(self, network, loss_function, delta, n_examples, C_range=None):
         super().__init__()
@@ -128,7 +130,7 @@ class C3EnsembleBound(EpochMetric):
         self.delta = delta
         self.n_examples = n_examples
         self.C_range = C_range
-        self.__name__ = "c3_bound"
+        self.__name__ = "c1_bound"
         self.reset()
 
     def forward(self, y_prediction, y_true):
@@ -140,4 +142,26 @@ class C3EnsembleBound(EpochMetric):
         self.example_sum = 0
 
     def get_metric(self):
-        return 24
+        loss = self.loss_sum / self.example_sum
+        b = 0
+        kl = 0
+        with torch.no_grad():
+            C = torch.exp(self.network.t) if self.C_range is None else self.C_range
+            kl = self.network.gibs_net.compute_kl()
+
+            b = bound(loss, kl, self.delta, self.n_examples, C)
+
+        emp_disagreement = self.network.get_disagreement()
+        rhs = (2*kl + math.log(2 * math.sqrt(self.n_examples) / self.delta)) / self.n_examples
+
+        d_vals = np.arange(0.01, .1, .0005)
+        d_final = 0
+        for d in d_vals:
+            divergence = kl_divergence(emp_disagreement, d)
+            if divergence <= rhs:
+                d_final = d
+        return 1 - (((1-2*b)**2) / (1-2*d_final))
+
+def kl_divergence(p, q):
+    return p * math.log(p / q) + (1-p) * math.log((1-p) / (1-q))
+        
