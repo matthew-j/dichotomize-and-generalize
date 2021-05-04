@@ -236,11 +236,33 @@ class PBGNet_Ensemble(torch.nn.Module):
         delta (float): Delta parameter of PAC-Bayesian bounds, see Theorem 1 (Default value = 0.05).
     """
 
-    def __init__(self, pbgnets):
+    def __init__(self, pbgnets, input_size, hidden_layers, n_examples, sample_size=64, delta=0.05):
         super(PBGNet_Ensemble, self).__init__()
         self.nets = pbgnets
         self.n_nets = len(pbgnets)
         self.conv1 = nn.Conv2d(2,2,4) ## dummy layer
+        self.gibs_net = PBGNet(input_size, hidden_layers, n_examples, sample_size=64, delta=0.05)
+        self.t = sum([self.nets[i].t for i in range(len(self.nets))]) / len(self.nets)
+
+        # init priors and weights
+        self.gibs_net.set_priors(self.gibs_net.state_dict())
+        self.gibs_net.init_weights()
+        with torch.no_grad():
+            for i, layer in zip(itertools.count(len(self.gibs_net.layers) -1, -1), reversed(self.gibs_net.layers)):
+                layer.priors['weight'] *= 0
+                layer.priors['bias'] *= 0
+                layer.weight *= 0
+
+                for net in self.nets:
+                    for j, layer_net in zip(itertools.count(len(net.layers) -1, -1), reversed(net.layers)):
+                        if j == i:
+                            layer.priors['weight'] += layer_net.priors['weight']
+                            layer.priors['bias'] += layer_net.priors['bias']
+                            layer.weight += layer_net.weight
+
+                layer.priors['weight'] /= len(self.nets)
+                layer.priors['bias'] /= len(self.nets)
+                layer.weight /= len(self.nets)
 
     def forward(self, input):
         outputs = []
@@ -251,8 +273,9 @@ class PBGNet_Ensemble(torch.nn.Module):
         retval = torch.sign(votecount)
 
         return retval
-    def get_disagreement(self):
-        return 0
+    
+    def markov_bound(self, pred_y, y):
+        return 2 * self.gibs_net.bound(pred_y, y)
 
 class BaselineNet(torch.nn.Module):
     """Standard neural network architecture used as a baseline.

@@ -230,12 +230,13 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
                     updated_weights[name] = weight
             nets[i].load_state_dict(weights)
 
-        ensemble_network = PBGNet_Ensemble(nets)
+        ensemble_network = PBGNet_Ensemble(nets, X_train.shape[1], hidden_layers * [hidden_size], X_train.shape[0], sample_size, delta)
 
         ens_bound = epoch_metrics
         if loss_bound == 'markov':
             ens_bound = [MarkovEnsembleBound(network=ensemble_network, loss_function=linear_loss,
                                                     delta=delta, n_examples=X_train.shape[0])]
+            cost_function = ensemble_network.markov_bound
         elif loss_bound == 'c3':
             ens_bound = [C3EnsembleBound(network=ensemble_network, loss_function=linear_loss,
                                                     delta=delta, n_examples=X_train.shape[0])]

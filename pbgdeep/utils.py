@@ -98,7 +98,7 @@ class MarkovEnsembleBound(EpochMetric):
         self.delta = delta
         self.n_examples = n_examples
         self.C_range = C_range
-        self.__name__ = "Bound in Theorem 10"
+        self.__name__ = "Markov Ensemble Bound"
         self.reset()
 
     def forward(self, y_prediction, y_true):
@@ -110,7 +110,13 @@ class MarkovEnsembleBound(EpochMetric):
         self.example_sum = 0
 
     def get_metric(self):
-        return 24
+        loss = self.loss_sum / self.example_sum
+        with torch.no_grad():
+            C = torch.exp(self.network.t) if self.C_range is None else self.C_range
+            kl = self.network.gibs_net.compute_kl()
+
+            bound_value = bound(loss, kl, self.delta, self.n_examples, C)
+        return 2 * bound_value
 
 class C3EnsembleBound(EpochMetric):
     """Computes Oracle Bound"""
