@@ -80,7 +80,7 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
     # Loading dataset
     dataset_loader = DatasetLoader(random_state=random_state)
     X_train, X_test, y_train, y_test = dataset_loader.load(dataset)
-    
+    final_train_loader = DataLoader(TensorDataset(torch.Tensor(X_train), torch.Tensor(y_train)), batch_size, shuffle=True)
     Train = np.append(X_train, y_train, 1)
     Train_bootstrapped = []
     for _ in range(num_models):
@@ -236,12 +236,11 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
         if loss_bound == 'markov':
             ens_bound = [MarkovEnsembleBound(network=ensemble_network, loss_function=linear_loss,
                                                     delta=delta, n_examples=X_train.shape[0])]
-            cost_function = ensemble_network.markov_bound
         elif loss_bound == 'c3':
             ens_bound = [C3EnsembleBound(network=ensemble_network, loss_function=linear_loss,
                                                     delta=delta, n_examples=X_train.shape[0])]
             
-        model = Model(ensemble_network, optimizer, cost_function, batch_metrics=batch_metrics, epoch_metrics=ens_bound)
+        model = Model(ensemble_network, optimizer, linear_loss, batch_metrics=batch_metrics, epoch_metrics=ens_bound)
 
         def repeat_inference(loader, prefix='', drop_keys=[], n_times=20):
             metrics_names = [prefix + 'loss'] + [prefix + metric_name for metric_name in model.metrics_names]
@@ -256,7 +255,7 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
             metrics_stats = pd.DataFrame({col: val for col, val in zip(metrics_names, metrics_list)})
             return metrics_stats.drop(drop_keys, axis=1, errors='ignore')
 
-        metrics_stats = repeat_inference(train_loader, n_times=n_repetitions)
+        metrics_stats = repeat_inference(final_train_loader, n_times=n_repetitions)
 
         metrics_stats = metrics_stats.join(repeat_inference(test_loader,
                                                             prefix='test_',
