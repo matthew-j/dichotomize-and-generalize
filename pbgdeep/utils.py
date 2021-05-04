@@ -157,12 +157,13 @@ class C1EnsembleBound(EpochMetric):
         emp_disagreement = self.network.get_disagreement()
         rhs = (2*kl + math.log(2 * math.sqrt(self.n_examples) / self.delta)) / self.n_examples
 
-        d_vals = np.arange(0.001, 1, .05)
+        d_vals = np.flip(np.arange(0.0001, 1, .05))
         d_final = 0
         for d in d_vals:
             divergence = kl_divergence(emp_disagreement, d)
             if divergence <= rhs:
                 d_final = d
+
         return 1 - (((1-2*b)**2) / (1-2*d_final))
 
 class C3EnsembleBound(EpochMetric):
