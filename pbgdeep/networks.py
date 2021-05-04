@@ -273,19 +273,19 @@ class PBGNet_Ensemble(torch.nn.Module):
 
     def update_disagreement(self, outputs):
         cur_disagreements = []
-        for output in outputs:
-            for i in range(len(output)):
-                for j in range(i+1, len(output)):
+        for i in range(len(outputs)):
+            for j in range(i+1, len(outputs)):
+                for output in outputs:
                     if torch.sign(output[j]) != torch.sign(output[i]):
                         cur_disagreements.append(1)
                     else:
                         cur_disagreements.append(0)
 
-            if self.sample_count == 0:
-                self.disagreements = cur_disagreements
-            else:
-                self.disagreements += cur_disagreements
-            self.sample_count += 1
+        if self.sample_count == 0:
+            self.disagreements = cur_disagreements
+        else:
+            self.disagreements = [sum(x) for x in zip(self.disagreements, cur_disagreements)]
+        self.sample_count += len(outputs[0])
 
     def forward(self, input):
         outputs = []

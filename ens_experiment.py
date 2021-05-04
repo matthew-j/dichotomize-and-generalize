@@ -20,7 +20,7 @@ from poutyne.layers import Lambda
 
 from pbgdeep.dataset_loader import DatasetLoader
 from pbgdeep.networks import PBGNet_Ensemble, PBGNet, BaselineNet, PBCombiNet
-from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger, C1EnsembleBound, MarkovEnsembleBound
+from pbgdeep.utils import linear_loss, accuracy, get_logging_dir_name, MasterMetricLogger, MetricLogger, C1EnsembleBound, MarkovEnsembleBound, C3EnsembleBound
 
 RESULTS_PATH = os.environ.get('PBGDEEP_RESULTS_DIR', join(dirname(abspath(__file__)), "results"))
 
@@ -240,7 +240,8 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
 
         ens_bound.append(C1EnsembleBound(network=ensemble_network, loss_function=linear_loss,
                                                     delta=delta, n_examples=X_train.shape[0]))
-            
+        ens_bound.append(C3EnsembleBound(network=ensemble_network, loss_function=linear_loss,
+                                                    delta=delta, n_examples=X_train.shape[0]))          
         model = Model(ensemble_network, optimizer, linear_loss, batch_metrics=batch_metrics, epoch_metrics=ens_bound)
 
         def repeat_inference(loader, prefix='', drop_keys=[], n_times=20):

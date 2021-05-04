@@ -26,6 +26,9 @@ def bound(linear_loss, kl, delta, n_examples, C):
 
     return bound_value
 
+def kl_divergence(p, q):
+    return p * math.log(p / q) + (1-p) * math.log((1-p) / (1-q))
+
 def get_logging_dir_name(experiment_setting):
     """Map experiment config dictionnary to a unique directory name."""
     return f"{experiment_setting['network']}_H{experiment_setting['hidden_layers']}-{experiment_setting['hidden_size']}"\
@@ -154,7 +157,7 @@ class C1EnsembleBound(EpochMetric):
         emp_disagreement = self.network.get_disagreement()
         rhs = (2*kl + math.log(2 * math.sqrt(self.n_examples) / self.delta)) / self.n_examples
 
-        d_vals = np.arange(0.01, .1, .0005)
+        d_vals = np.arange(0.001, 1, .05)
         d_final = 0
         for d in d_vals:
             divergence = kl_divergence(emp_disagreement, d)
@@ -162,6 +165,39 @@ class C1EnsembleBound(EpochMetric):
                 d_final = d
         return 1 - (((1-2*b)**2) / (1-2*d_final))
 
-def kl_divergence(p, q):
-    return p * math.log(p / q) + (1-p) * math.log((1-p) / (1-q))
+class C3EnsembleBound(EpochMetric):
+    """Computes c3 Bound"""
+
+    def __init__(self, network, loss_function, delta, n_examples, C_range=None):
+        super().__init__()
+        self.network = network
+        self.loss_function = loss_function
+        self.delta = delta
+        self.n_examples = n_examples
+        self.C_range = C_range
+        self.__name__ = "c3_bound"
+        self.reset()
+
+    def forward(self, y_prediction, y_true):
+        self.loss_sum += self.loss_function(y_prediction, y_true) * y_true.shape[0]
+        self.example_sum += y_true.shape[0]
+
+    def reset(self):
+        self.loss_sum = 0
+        self.example_sum = 0
+
+    def get_metric(self):
+        loss = self.loss_sum / self.example_sum
+        emp_disagreement = self.network.get_disagreement()
+        b = 0
+        with torch.no_grad():
+            C = torch.exp(self.network.t) if self.C_range is None else self.C_range
+            kl = self.network.gibs_net.compute_kl()
+
+            b = bound(loss, kl, self.delta, self.n_examples, C)
+
+        r = min(0.5, b + math.sqrt(math.log(4 * math.sqrt(self.n_examples) / self.delta) / (2 * self.n_examples)))
+        d = max(0, emp_disagreement - math.sqrt(math.log(4 * math.sqrt(self.n_examples) / self.delta) / (2 * self.n_examples)))
+
+        return 1 - (((1-2*r)**2) / (1-2*d))
         
