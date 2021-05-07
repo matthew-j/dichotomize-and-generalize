@@ -190,14 +190,8 @@ class C3EnsembleBound(EpochMetric):
     def get_metric(self):
         loss = self.loss_sum / self.example_sum
         emp_disagreement = self.network.get_disagreement()
-        b = 0
-        with torch.no_grad():
-            C = torch.exp(self.network.t) if self.C_range is None else self.C_range
-            kl = self.network.gibs_net.compute_kl()
 
-            b = bound(loss, kl, self.delta, self.n_examples, C)
-
-        r = min(0.5, b + math.sqrt(math.log(4 * math.sqrt(self.n_examples) / self.delta) / (2 * self.n_examples)))
+        r = min(0.5, loss + math.sqrt(math.log(4 * math.sqrt(self.n_examples) / self.delta) / (2 * self.n_examples)))
         d = max(0, emp_disagreement - math.sqrt(math.log(4 * math.sqrt(self.n_examples) / self.delta) / (2 * self.n_examples)))
 
         return 1 - (((1-2*r)**2) / (1-2*d))

@@ -274,9 +274,10 @@ def launch(dataset, experiment_name, network, hidden_size, hidden_layers, sample
     if network == 'pbgnet':
         pbgnet_testing(target_metric='bound',
                        irrelevant_columns=['val_loss', 'val_accuracy', 'val_linear_loss'] + default_irrelevant_columns,
-                       n_repetitions=20)
+                       n_repetitions=2)
 
     print("### DONE ###")
 
 if __name__ == '__main__':
     launch()
+# 56 next on this computer
